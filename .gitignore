@@ -1,0 +1,35 @@
+# Dependencies and generated output (all app folders)
+node_modules/
+dist/
+dist-ssr/
+coverage/
+
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+
+# Logs
+logs/
+*.log
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local course reference documents
+/node-js.pdf
+/react-js.pdf
+
+# Printed reports are kept locally only
+/reports/

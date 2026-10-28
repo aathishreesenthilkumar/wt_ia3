@@ -1,0 +1,57 @@
+body {
+  background: #f6f3ef;
+}
+
+.brand-bar {
+  background: linear-gradient(90deg, #d9480f, #f08c00);
+}
+
+.hero {
+  background: #fff4e6;
+  border: 1px solid #ffd8a8;
+  border-radius: 0.75rem;
+}
+
+.stat-card .stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.card {
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.nav-pills .nav-link {
+  color: #d9480f;
+}
+
+.nav-pills .nav-link.active {
+  background-color: #d9480f;
+  color: #fff;
+}
+
+.btn-brand {
+  background-color: #d9480f;
+  border-color: #d9480f;
+  color: #fff;
+}
+
+.btn-brand:hover,
+.btn-brand:focus {
+  background-color: #b33b0b;
+  border-color: #b33b0b;
+  color: #fff;
+}
+
+.status-steps {
+  font-size: 0.75rem;
+}
+
+.toast-area {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1080;
+  max-width: 380px;
+}
