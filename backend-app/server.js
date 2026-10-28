@@ -1,223 +1,203 @@
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-const { Restaurant, Order, ORDER_STATUSES, CANCELLABLE_STATUSES } = require("./models");
-const menu = require("./menu");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 5000;
-const MONGO_URL = "mongodb://127.0.0.1:27017/food_delivery_db";
-
-mongoose.connect(MONGO_URL)
+mongoose.connect("mongodb://127.0.0.1:27017/food_delivery_db")
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.log(err));
 
-// Turn Mongoose / MongoDB errors into one readable message.
-function errorMessage(err) {
-  if (err.code === 11000) return err.keyValue?.orderId ? "Order ID already exists" : "Restaurant ID already exists";
-  if (err.name === "ValidationError") {
-    return Object.values(err.errors).map((e) => e.message).join(", ");
-  }
-  return err.message;
-}
+const restaurantSchema = new mongoose.Schema({
+  restaurantId: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  location: { type: String, required: true },
+  contactNumber: { type: String, required: true, match: [/^\d{10}$/, "Contact number must have 10 digits"] }
+});
+const Restaurant = mongoose.model("Restaurant", restaurantSchema, "restaurants");
 
-// Escape user text before using it inside a regular expression.
-function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+const orderSchema = new mongoose.Schema({
+  orderId: { type: String, required: true, unique: true },
+  customerName: { type: String, required: true },
+  customerPhone: { type: String, required: true, match: [/^\d{10}$/, "Phone number must have 10 digits"] },
+  deliveryAddress: { type: String, required: true },
+  restaurantName: { type: String, required: true },
+  items: [{ itemName: String, price: Number, quantity: Number }],
+  totalBill: { type: Number, required: true },
+  status: {
+    type: String,
+    enum: ["Placed", "Preparing", "Out for Delivery", "Delivered", "Cancelled"],
+    default: "Placed"
+  }
+});
+const Order = mongoose.model("Order", orderSchema, "orders");
+
+// Food items that can be ordered, with prices in rupees.
+const menu = [
+  { itemName: "Veg Biryani", price: 180 },
+  { itemName: "Chicken Biryani", price: 240 },
+  { itemName: "Masala Dosa", price: 90 },
+  { itemName: "Veg Noodles", price: 150 },
+  { itemName: "Margherita Pizza", price: 260 },
+  { itemName: "Fresh Lime Soda", price: 60 }
+];
+
+// Order status moves forward in this order.
+const statusFlow = ["Placed", "Preparing", "Out for Delivery", "Delivered"];
 
 app.get("/", (req, res) => {
   res.json({ message: "Online Food Delivery Management System API" });
 });
 
-/* ---------------- Restaurants ---------------- */
-
 // View all restaurants, or search by name or location.
 app.get("/api/restaurants", async (req, res) => {
   try {
-    const filter = {};
-    const search = (req.query.search || "").trim();
-    if (search) {
-      const pattern = new RegExp(escapeRegex(search), "i");
-      filter.$or = [{ name: pattern }, { location: pattern }];
+    let restaurants;
+    if (req.query.search) {
+      const pattern = new RegExp(req.query.search, "i");
+      restaurants = await Restaurant.find({ $or: [{ name: pattern }, { location: pattern }] });
+    } else {
+      restaurants = await Restaurant.find();
     }
-    const restaurants = await Restaurant.find(filter).sort({ restaurantId: 1 });
     res.json(restaurants);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Find one restaurant by its Restaurant ID.
-app.get("/api/restaurants/:restaurantId", async (req, res) => {
+// Add a restaurant.
+app.post("/api/restaurants", async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ restaurantId: req.params.restaurantId.toUpperCase() });
-    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
-    res.json(restaurant);
+    const restaurant = new Restaurant(req.body);
+    await restaurant.save();
+    res.json({ message: "Restaurant added successfully" });
+  } catch (err) {
+    res.status(400).json({ message: err.code === 11000 ? "Restaurant ID already exists" : err.message });
+  }
+});
+
+// Update a restaurant using its Restaurant ID.
+app.put("/api/restaurants/:restaurantId", async (req, res) => {
+  try {
+    const { name, location, contactNumber } = req.body;
+    const restaurant = await Restaurant.findOneAndUpdate(
+      { restaurantId: req.params.restaurantId },
+      { name, location, contactNumber },
+      { runValidators: true }
+    );
+    if (!restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+    res.json({ message: "Restaurant updated successfully" });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 });
 
-// Add a new restaurant.
-app.post("/api/restaurants", async (req, res) => {
-  try {
-    const { restaurantId, name, location, contactNumber } = req.body;
-    const restaurant = new Restaurant({ restaurantId, name, location, contactNumber });
-    await restaurant.save();
-    res.status(201).json({ message: "Restaurant added successfully", restaurant });
-  } catch (err) {
-    res.status(400).json({ message: errorMessage(err) });
-  }
-});
-
-// Update a restaurant's details.
-app.put("/api/restaurants/:restaurantId", async (req, res) => {
-  try {
-    const { name, location, contactNumber } = req.body;
-    const restaurant = await Restaurant.findOneAndUpdate(
-      { restaurantId: req.params.restaurantId.toUpperCase() },
-      { name, location, contactNumber },
-      { returnDocument: "after", runValidators: true }
-    );
-    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
-    res.json({ message: "Restaurant updated successfully", restaurant });
-  } catch (err) {
-    res.status(400).json({ message: errorMessage(err) });
-  }
-});
-
-// Delete a restaurant (only when it has no active orders).
+// Delete a restaurant using its Restaurant ID.
 app.delete("/api/restaurants/:restaurantId", async (req, res) => {
   try {
-    const restaurantId = req.params.restaurantId.toUpperCase();
-    const activeOrders = await Order.countDocuments({
-      restaurantId,
-      status: { $in: ["Placed", "Preparing", "Out for Delivery"] }
-    });
-    if (activeOrders > 0) {
-      return res.status(400).json({ message: "Cannot delete: this restaurant has active orders" });
+    const restaurant = await Restaurant.findOneAndDelete({ restaurantId: req.params.restaurantId });
+    if (!restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
     }
-    const restaurant = await Restaurant.findOneAndDelete({ restaurantId });
-    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
     res.json({ message: "Restaurant deleted successfully" });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 });
 
-/* ---------------- Menu ---------------- */
-
+// List the food items.
 app.get("/api/menu", (req, res) => {
   res.json(menu);
 });
 
-/* ---------------- Orders ---------------- */
-
-// View all orders, optionally filtered by status or order ID.
+// View all orders (newest first), or only orders with one status.
 app.get("/api/orders", async (req, res) => {
   try {
-    const filter = {};
-    if (req.query.status) filter.status = req.query.status;
-    if (req.query.orderId) filter.orderId = req.query.orderId.trim().toUpperCase();
-    const orders = await Order.find(filter).sort({ createdAt: -1 });
+    let orders;
+    if (req.query.status) {
+      orders = await Order.find({ status: req.query.status }).sort({ _id: -1 });
+    } else {
+      orders = await Order.find().sort({ _id: -1 });
+    }
     res.json(orders);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Create the next order ID: ORD1001, ORD1002, ...
-async function nextOrderId() {
-  const last = await Order.findOne().sort({ createdAt: -1 });
-  const lastNumber = last ? parseInt(last.orderId.replace("ORD", ""), 10) : 1000;
-  return "ORD" + (lastNumber + 1);
-}
-
-// Place a new order. The bill is calculated on the server from menu prices.
+// Place an order. The total bill is calculated here from the menu prices.
 app.post("/api/orders", async (req, res) => {
   try {
-    const { customerName, customerPhone, deliveryAddress, restaurantId, items } = req.body;
-
-    const restaurant = await Restaurant.findOne({ restaurantId: (restaurantId || "").toUpperCase() });
-    if (!restaurant) return res.status(400).json({ message: "Select a valid restaurant" });
-
-    if (!Array.isArray(items) || items.length === 0) {
+    const { customerName, customerPhone, deliveryAddress, restaurantName, items } = req.body;
+    if (!items || items.length === 0) {
       return res.status(400).json({ message: "Select at least one food item" });
     }
 
     const orderItems = [];
+    let totalBill = 0;
     for (const item of items) {
-      const menuItem = menu.find((m) => m.itemName === item.itemName);
-      const quantity = Number(item.quantity);
-      if (!menuItem) return res.status(400).json({ message: `Unknown food item: ${item.itemName}` });
-      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 20) {
-        return res.status(400).json({ message: `Quantity for ${item.itemName} must be between 1 and 20` });
+      const food = menu.find((m) => m.itemName === item.itemName);
+      if (!food) {
+        return res.status(400).json({ message: "Invalid food item" });
       }
-      orderItems.push({ itemName: menuItem.itemName, price: menuItem.price, quantity });
+      orderItems.push({ itemName: food.itemName, price: food.price, quantity: item.quantity });
+      totalBill += food.price * item.quantity;
     }
 
-    const totalBill = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-
+    const count = await Order.countDocuments();
     const order = new Order({
-      orderId: await nextOrderId(),
-      customerName,
-      customerPhone,
-      deliveryAddress,
-      restaurantId: restaurant.restaurantId,
-      restaurantName: restaurant.name,
+      orderId: "ORD" + (1001 + count),
+      customerName, customerPhone, deliveryAddress, restaurantName,
       items: orderItems,
       totalBill
     });
     await order.save();
-    res.status(201).json({ message: `Order ${order.orderId} placed successfully. Total: Rs. ${totalBill}`, order });
-  } catch (err) {
-    res.status(400).json({ message: errorMessage(err) });
-  }
-});
-
-// Update order status. Status can only move forward: Placed -> Preparing -> Out for Delivery -> Delivered.
-app.put("/api/orders/:orderId/status", async (req, res) => {
-  try {
-    const { status } = req.body;
-    if (!ORDER_STATUSES.includes(status) || status === "Cancelled") {
-      return res.status(400).json({ message: "Choose a valid status" });
-    }
-    const order = await Order.findOne({ orderId: req.params.orderId.toUpperCase() });
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    if (order.status === "Delivered" || order.status === "Cancelled") {
-      return res.status(400).json({ message: `Order is already ${order.status}` });
-    }
-    if (ORDER_STATUSES.indexOf(status) <= ORDER_STATUSES.indexOf(order.status)) {
-      return res.status(400).json({ message: `Status cannot go back from ${order.status} to ${status}` });
-    }
-    order.status = status;
-    await order.save();
-    res.json({ message: `Order ${order.orderId} is now ${status}`, order });
+    res.json({ message: `Order ${order.orderId} placed. Total bill: Rs. ${totalBill}` });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 });
 
-// Cancel an order. Only orders that are Placed or Preparing can be cancelled.
+// Move an order to its next status.
+app.put("/api/orders/:orderId/status", async (req, res) => {
+  try {
+    const order = await Order.findOne({ orderId: req.params.orderId });
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    if (order.status === "Delivered" || order.status === "Cancelled") {
+      return res.status(400).json({ message: `Order is already ${order.status}` });
+    }
+    order.status = statusFlow[statusFlow.indexOf(order.status) + 1];
+    await order.save();
+    res.json({ message: `Order ${order.orderId} is now ${order.status}` });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Cancel an order. Only Placed orders can be cancelled.
 app.put("/api/orders/:orderId/cancel", async (req, res) => {
   try {
-    const order = await Order.findOne({ orderId: req.params.orderId.toUpperCase() });
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    if (!CANCELLABLE_STATUSES.includes(order.status)) {
+    const order = await Order.findOne({ orderId: req.params.orderId });
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    if (order.status !== "Placed") {
       return res.status(400).json({ message: `Order cannot be cancelled once it is ${order.status}` });
     }
     order.status = "Cancelled";
     await order.save();
-    res.json({ message: `Order ${order.orderId} cancelled successfully`, order });
+    res.json({ message: `Order ${order.orderId} cancelled` });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+app.listen(5000, () => {
+  console.log("Server running at http://localhost:5000");
 });

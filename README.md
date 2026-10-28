@@ -1,23 +1,23 @@
 # Online Food Delivery Management System
 
-IA3 project for **Web Technology (23CS2048)**. A full stack web application to manage restaurants and food orders: add, view, search, update and delete restaurants; place orders with an automatically calculated bill; track order status; and cancel eligible orders.
+IA3 project for **Web Technology (23CS2048)**. A simple full stack app to manage restaurants and food orders: add, view, search, update and delete restaurants; place orders with an automatically calculated bill; track order status; and cancel orders.
 
 ## Technologies
 
-- Frontend: React (Vite), Bootstrap 5, Bootstrap Icons, Axios
-- Backend: Node.js, Express.js
+- Frontend: React (Vite), Bootstrap, Axios
+- Backend: Node.js, Express
 - Database: MongoDB, Mongoose
 
 ## Features
 
 | Feature | Description |
 | --- | --- |
-| Add New Restaurant | Restaurant ID, name, location and contact number, validated on both client and server |
-| View All Restaurants | Table of all registered restaurants with Edit and Delete actions |
-| Search Restaurants | Case-insensitive search by restaurant name or location |
-| Place Food Orders | Customer details, food items and quantities; the total bill is calculated on the server |
-| Track Order Status | Placed → Preparing → Out for Delivery → Delivered (status can only move forward) |
-| Cancel Orders | Allowed only while an order is Placed or Preparing; the order is kept and marked Cancelled |
+| Add New Restaurant | Restaurant ID, name, location and 10-digit contact number |
+| View / Search Restaurants | Table of all restaurants; search by name or location |
+| Update / Delete Restaurant | Edit and Delete buttons on each row |
+| Place Food Orders | Customer details, restaurant, food items and quantities; the total bill is calculated on the server |
+| Track Order Status | Placed → Preparing → Out for Delivery → Delivered, using the Next Status button |
+| Cancel Orders | Allowed only while an order is Placed |
 
 ## Run
 
@@ -28,7 +28,6 @@ Start the backend:
 ```sh
 cd backend-app
 npm install
-npm run seed     # optional: adds 5 sample restaurants
 npm run dev
 ```
 
@@ -46,15 +45,10 @@ Open `http://localhost:5173`. The backend runs at `http://localhost:5000`.
 
 ```
 backend-app/
-  server.js        Express app and REST API routes
-  models.js        Mongoose schemas (Restaurant, Order)
-  menu.js          Food items and prices
-  seed.js          Sample restaurant data
+  server.js      Express app, Mongoose schemas, menu and REST API routes
 frontend-app/src/
-  App.jsx          Layout, tabs, dashboard counts, API calls
-  api.js           Axios instance and shared constants
-  validation.js    Client-side validation rules
-  components/      RestaurantForm, RestaurantList, OrderForm, OrderList
+  main.jsx       Loads Bootstrap and renders App
+  App.jsx        The whole user interface
 ```
 
 ## REST API
@@ -62,15 +56,14 @@ frontend-app/src/
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | GET | `/api/restaurants?search=` | View all / search restaurants by name or location |
-| GET | `/api/restaurants/:restaurantId` | Get one restaurant |
 | POST | `/api/restaurants` | Add a restaurant |
 | PUT | `/api/restaurants/:restaurantId` | Update a restaurant |
-| DELETE | `/api/restaurants/:restaurantId` | Delete a restaurant (blocked if it has active orders) |
+| DELETE | `/api/restaurants/:restaurantId` | Delete a restaurant |
 | GET | `/api/menu` | List food items and prices |
-| GET | `/api/orders?status=&orderId=` | View / filter orders |
+| GET | `/api/orders?status=` | View all orders, or one status |
 | POST | `/api/orders` | Place an order |
-| PUT | `/api/orders/:orderId/status` | Update order status |
-| PUT | `/api/orders/:orderId/cancel` | Cancel an eligible order |
+| PUT | `/api/orders/:orderId/status` | Move an order to its next status |
+| PUT | `/api/orders/:orderId/cancel` | Cancel an order (Placed only) |
 
 ## Schema
 
@@ -80,22 +73,22 @@ Collection `restaurants`
 
 | Field | Type | Rules |
 | --- | --- | --- |
-| `restaurantId` | String | Required, unique, format `R101` |
-| `name` | String | Required, at least 3 characters |
+| `restaurantId` | String | Required, unique |
+| `name` | String | Required |
 | `location` | String | Required |
-| `contactNumber` | String | Required, 10-digit mobile number |
+| `contactNumber` | String | Required, 10 digits |
 
 Collection `orders`
 
 | Field | Type | Rules |
 | --- | --- | --- |
 | `orderId` | String | Generated, unique (`ORD1001`, `ORD1002`, ...) |
-| `customerName` | String | Letters only, 3-50 characters |
-| `customerPhone` | String | 10-digit mobile number |
-| `deliveryAddress` | String | At least 10 characters |
-| `restaurantId`, `restaurantName` | String | Must refer to an existing restaurant |
-| `items` | Array | `{ itemName, price, quantity }`, quantity 1-20, at least one item |
+| `customerName` | String | Required |
+| `customerPhone` | String | Required, 10 digits |
+| `deliveryAddress` | String | Required |
+| `restaurantName` | String | Required |
+| `items` | Array | `{ itemName, price, quantity }` |
 | `totalBill` | Number | Calculated on the server from menu prices |
 | `status` | String | `Placed`, `Preparing`, `Out for Delivery`, `Delivered`, `Cancelled` |
 
-Both collections also store `createdAt` and `updatedAt` timestamps. MongoDB adds `_id` automatically.
+MongoDB adds `_id` automatically.
